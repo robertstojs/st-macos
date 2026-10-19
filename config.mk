@@ -12,13 +12,25 @@ X11LIB = /usr/X11R6/lib
 
 PKG_CONFIG = pkg-config
 
+# x or mac, set by make
+FRONTEND = x
+
+# X11 includes and libs
+X11INCS = -I$(X11INC) \
+          `$(PKG_CONFIG) --cflags fontconfig` \
+          `$(PKG_CONFIG) --cflags freetype2`
+X11LIBS = -L$(X11LIB) -lm -lX11 -lutil -lXft \
+          `$(PKG_CONFIG) --libs fontconfig` \
+          `$(PKG_CONFIG) --libs freetype2`
+
+# macOS includes and libs, xorgproto has the keysyms used in config.h
+MACINCS = `$(PKG_CONFIG) --cflags xproto`
+MACLIBS = -lm -lutil -framework Cocoa -framework CoreText
+MACCFLAGS = -fobjc-arc -D_DARWIN_C_SOURCE
+
 # includes and libs
-INCS = -I$(X11INC) \
-       `$(PKG_CONFIG) --cflags fontconfig` \
-       `$(PKG_CONFIG) --cflags freetype2`
-LIBS = -L$(X11LIB) -lm -lrt -lX11 -lutil -lXft \
-       `$(PKG_CONFIG) --libs fontconfig` \
-       `$(PKG_CONFIG) --libs freetype2`
+INCS = $(X11INCS)
+LIBS = $(X11LIBS)
 
 # flags
 STCPPFLAGS = -DVERSION=\"$(VERSION)\" -D_XOPEN_SOURCE=600
