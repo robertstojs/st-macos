@@ -11,6 +11,9 @@
 #include <time.h>
 #include <unistd.h>
 #include <libgen.h>
+#include <pwd.h>
+#include <spawn.h>
+#include <sys/wait.h>
 #include <X11/X.h>
 #include <X11/keysym.h>
 
@@ -288,6 +291,7 @@ static char *kmap(KeySym, uint);
 static int match(uint, uint);
 
 static void embedfollow(void);
+static void newwindow(void);
 static void schedule(void);
 static void drawnow(void);
 static void run(void);
@@ -2550,6 +2554,16 @@ scrollevent(NSEvent *ev)
 	}
 }
 
+- (NSMenu *)applicationDockMenu:(NSApplication *)app
+{
+	NSMenu *m = [NSMenu new];
+
+	[m addItemWithTitle:@"New Window" action:@selector(newWindow:)
+	   keyEquivalent:@""];
+	return m;
+}
+
+- (void)newWindow:(id)sender { newwindow(); }
 - (void)copy:(id)sender { clipcopy(NULL); }
 - (void)paste:(id)sender { clippaste(NULL); schedule(); }
 - (void)pasteSelection:(id)sender { selpaste(NULL); schedule(); }
@@ -2582,6 +2596,14 @@ xmenu(void)
 	   action:@selector(terminate:) keyEquivalent:@"q"];
 	[[bar addItemWithTitle:@"" action:NULL keyEquivalent:@""] setSubmenu:m];
 
+	m = [[NSMenu alloc] initWithTitle:@"File"];
+	[m addItemWithTitle:@"New Window" action:@selector(newWindow:)
+	   keyEquivalent:@"n"];
+	[m addItem:[NSMenuItem separatorItem]];
+	[m addItemWithTitle:@"Close" action:@selector(performClose:)
+	   keyEquivalent:@"w"];
+	[[bar addItemWithTitle:@"" action:NULL keyEquivalent:@""] setSubmenu:m];
+
 	m = [[NSMenu alloc] initWithTitle:@"Edit"];
 	[m addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
 	[m addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
@@ -2608,12 +2630,61 @@ xmenu(void)
 	   keyEquivalent:@"m"];
 	[m addItemWithTitle:@"Zoom" action:@selector(performZoom:)
 	   keyEquivalent:@""];
-	[m addItemWithTitle:@"Close" action:@selector(performClose:)
-	   keyEquivalent:@"w"];
 	[[bar addItemWithTitle:@"" action:NULL keyEquivalent:@""] setSubmenu:m];
 	[NSApp setWindowsMenu:m];
 
 	[NSApp setMainMenu:bar];
+}
+
+/* one process per window, like on X */
+void
+newwindow(void)
+{
+	extern char **environ;
+	char *argv[] = { NULL, NULL };
+	dispatch_source_t src;
+	pid_t p;
+
+	argv[0] = (char *)[[[NSBundle mainBundle] executablePath]
+	                   fileSystemRepresentation];
+	if (!argv[0] || posix_spawn(&p, argv[0], NULL, NULL, argv, environ)) {
+		fprintf(stderr, "%s: can't start a new window: %s\n", argv0,
+		        strerror(errno));
+		return;
+	}
+
+	/* sigchld() in st.c only reaps the shell */
+	src = dispatch_source_create(DISPATCH_SOURCE_TYPE_PROC, p,
+	                             DISPATCH_PROC_EXIT, dispatch_get_main_queue());
+	dispatch_source_set_event_handler(src, ^{
+		waitpid(p, NULL, WNOHANG);
+		dispatch_source_cancel(src);
+	});
+	dispatch_resume(src);
+}
+
+/*
+ * Apps started from Finder or the Dock get a bare environment. Start a
+ * login shell in $HOME so the shell profile sets up PATH.
+ */
+static void
+guilaunch(void)
+{
+	static char *cmd[] = { NULL, "-l", NULL };
+	struct passwd *pw;
+	char *home;
+
+	if (opt_cmd || opt_line || isatty(STDIN_FILENO) ||
+	    ![[NSBundle mainBundle] bundleIdentifier])
+		return;
+
+	pw = getpwuid(getuid());
+	if ((home = getenv("HOME")) || (pw && (home = pw->pw_dir)))
+		chdir(home);
+
+	if (!(cmd[0] = getenv("SHELL")))
+		cmd[0] = (pw && pw->pw_shell[0]) ? pw->pw_shell : shell;
+	opt_cmd = cmd;
 }
 
 static void
@@ -2796,6 +2867,10 @@ run:
 
 	if (!opt_title)
 		opt_title = (opt_line || !opt_cmd) ? "st" : opt_cmd[0];
+
+	@autoreleasepool {
+		guilaunch();
+	}
 
 	setlocale(LC_CTYPE, "");
 	/* Finder starts apps with the C locale, wcwidth() needs UTF-8 */
