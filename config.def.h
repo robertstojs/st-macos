@@ -183,6 +183,12 @@ static MouseShortcut mshortcuts[] = {
 	{ XK_ANY_MOD,           Button5, ttysend,        {.s = "\005"} },
 };
 
+/*
+ * macOS: Option key used as Alt (Mod1Mask). 0: none, 1: left, 2: right,
+ * 3: both. The other Option key types special characters.
+ */
+#define OPTIONMETA 1
+
 /* Internal keyboard shortcuts. */
 #define MODKEY Mod1Mask
 #define TERMMOD (ControlMask|ShiftMask)
