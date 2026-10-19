@@ -1,3 +1,6 @@
 st
 *.o
 config.h
+mkicon
+st.icns
+st.iconset

@@ -27,6 +27,8 @@ X11LIBS = -L$(X11LIB) -lm -lX11 -lutil -lXft \
 MACINCS = `$(PKG_CONFIG) --cflags xproto`
 MACLIBS = -lm -lutil -framework Cocoa -framework CoreText
 MACCFLAGS = -fobjc-arc -D_DARWIN_C_SOURCE
+# where make puts st.app
+APPPREFIX = /Applications
 
 # includes and libs
 INCS = $(X11INCS)
