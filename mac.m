@@ -368,11 +368,23 @@ clippaste(const Arg *dummy)
 	pastetext(p, strlen(p));
 }
 
+/* no PRIMARY on macOS, use a named pasteboard instead */
+static NSPasteboard *
+primarypb(void)
+{
+	return [NSPasteboard pasteboardWithName:@"org.suckless.st.primary"];
+}
+
 void
 selpaste(const Arg *dummy)
 {
-	if (xsel.primary)
-		pastetext(xsel.primary, strlen(xsel.primary));
+	NSString *s;
+	const char *p;
+
+	s = [primarypb() stringForType:NSPasteboardTypeString];
+	if (!s || !(p = [s UTF8String]))
+		return;
+	pastetext(p, strlen(p));
 }
 
 void
@@ -629,11 +641,20 @@ xclipcopy(void)
 void
 setsel(char *str)
 {
+	NSPasteboard *pb;
+	NSString *s;
+
 	if (!str)
 		return;
 
 	free(xsel.primary);
 	xsel.primary = str;
+
+	if ((s = [NSString stringWithUTF8String:str])) {
+		pb = primarypb();
+		[pb clearContents];
+		[pb setString:s forType:NSPasteboardTypeString];
+	}
 }
 
 void
