@@ -245,6 +245,9 @@ typedef struct {
 @interface StView : NSView <NSTextInputClient>
 @end
 
+@interface StWindow : NSWindow
+@end
+
 @interface StDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
 @end
 
@@ -284,6 +287,7 @@ static void pastetext(const char *, size_t);
 static char *kmap(KeySym, uint);
 static int match(uint, uint);
 
+static void embedfollow(void);
 static void schedule(void);
 static void drawnow(void);
 static void run(void);
@@ -294,11 +298,12 @@ static DC dc;
 static XWindow xw;
 static XSelection xsel;
 static TermWindow win;
-static NSWindow *window;
+static StWindow *window;
 static StView *view;
 static StDelegate *delegate;
 static NSString *markedtext;
-static dispatch_source_t ttysrc, drawtimer;
+static dispatch_source_t ttysrc, drawtimer, embedtimer;
+static CGWindowID embedwin;
 static int drawing;
 static struct timespec trigger, lastblink;
 
@@ -1287,8 +1292,10 @@ xinit(int cols, int rows)
 	        NSWindowStyleMaskMiniaturizable;
 	if (!xw.isfixed)
 		style |= NSWindowStyleMaskResizable;
+	if (opt_embed && (embedwin = strtoul(opt_embed, NULL, 0)))
+		style = NSWindowStyleMaskBorderless;
 
-	window = [[NSWindow alloc]
+	window = [[StWindow alloc]
 	          initWithContentRect:NSMakeRect(0, 0, win.w, win.h)
 	          styleMask:style backing:NSBackingStoreBuffered defer:NO];
 	[window setReleasedWhenClosed:NO];
@@ -1305,7 +1312,9 @@ xinit(int cols, int rows)
 
 	/* position */
 	screen = [[NSScreen mainScreen] frame];
-	if (xw.gm & (XValue|YValue)) {
+	if (embedwin) {
+		embedfollow();
+	} else if (xw.gm & (XValue|YValue)) {
 		frame = [window frame];
 		if (xw.gm & XNegative)
 			xw.l += screen.size.width - frame.size.width;
@@ -1331,6 +1340,58 @@ xinit(int cols, int rows)
 	clock_gettime(CLOCK_MONOTONIC, &xsel.tclick2);
 	xsel.primary = NULL;
 	xsel.clipboard = NULL;
+}
+
+/*
+ * Cocoa can't reparent windows of other processes, so for -w st covers the
+ * given window and follows it. st exits when that window is closed.
+ */
+void
+embedfollow(void)
+{
+	static int shown;
+	CFArrayRef list;
+	CFDictionaryRef info;
+	CFBooleanRef onscreen;
+	CGRect b;
+	NSRect r;
+	CGFloat title;
+
+	list = CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow,
+	                                  embedwin);
+	if (!list || CFArrayGetCount(list) < 1) {
+		if (list)
+			CFRelease(list);
+		if (!xw.started)
+			die("can't embed into window %s\n", opt_embed);
+		ttyhangup();
+		exit(0);
+	}
+	info = CFArrayGetValueAtIndex(list, 0);
+	CGRectMakeWithDictionaryRepresentation(
+	    CFDictionaryGetValue(info, kCGWindowBounds), &b);
+	onscreen = CFDictionaryGetValue(info, kCGWindowIsOnscreen);
+
+	if (!onscreen || !CFBooleanGetValue(onscreen)) {
+		if (shown)
+			[window orderOut:nil];
+		shown = 0;
+		CFRelease(list);
+		return;
+	}
+
+	/* CG coordinates start at the top left of the main screen */
+	title = NSHeight([NSWindow frameRectForContentRect:NSZeroRect
+	                  styleMask:NSWindowStyleMaskTitled]);
+	r = NSMakeRect(b.origin.x, NSMaxY([[NSScreen screens][0] frame]) -
+	               b.origin.y - b.size.height, b.size.width,
+	               MAX(1, b.size.height - title));
+	if (!NSEqualRects(r, [window frame]))
+		[window setFrame:r display:YES];
+	if (!shown || ![window isVisible])
+		[window orderWindow:NSWindowAbove relativeTo:embedwin];
+	shown = 1;
+	CFRelease(list);
 }
 
 static int
@@ -2209,6 +2270,14 @@ scrollevent(NSEvent *ev)
 	}
 }
 
+@implementation StWindow
+
+/* needed for the borderless window of -w */
+- (BOOL)canBecomeKeyWindow { return YES; }
+- (BOOL)canBecomeMainWindow { return YES; }
+
+@end
+
 @implementation StView
 
 - (BOOL)isFlipped { return YES; }
@@ -2642,6 +2711,17 @@ run(void)
 	dispatch_resume(ttysrc);
 	dispatch_resume(drawtimer);
 
+	if (embedwin) {
+		embedtimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER,
+		                                    0, 0, dispatch_get_main_queue());
+		dispatch_source_set_event_handler(embedtimer, ^{
+			embedfollow();
+		});
+		dispatch_source_set_timer(embedtimer, DISPATCH_TIME_NOW,
+		                          NSEC_PER_SEC / 20, NSEC_PER_SEC / 100);
+		dispatch_resume(embedtimer);
+	}
+
 	drawnow();
 	[NSApp run];
 }
@@ -2716,10 +2796,6 @@ run:
 
 	if (!opt_title)
 		opt_title = (opt_line || !opt_cmd) ? "st" : opt_cmd[0];
-
-	if (opt_embed)
-		fprintf(stderr, "%s: -w: embedding is not supported on macOS\n",
-		        argv0);
 
 	setlocale(LC_CTYPE, "");
 	/* Finder starts apps with the C locale, wcwidth() needs UTF-8 */
