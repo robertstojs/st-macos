@@ -2880,6 +2880,10 @@ run:
 	rows = MAX(rows, 1);
 
 	@autoreleasepool {
+		/* repeat held keys instead of showing the accent menu */
+		[[NSUserDefaults standardUserDefaults] registerDefaults:@{
+			@"ApplePressAndHoldEnabled": @NO,
+		}];
 		[NSApplication sharedApplication];
 		[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
 		delegate = [StDelegate new];
