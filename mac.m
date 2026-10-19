@@ -905,7 +905,6 @@ xhints(void)
 	if (!window)
 		return;
 
-	[window setContentResizeIncrements:NSMakeSize(win.cw, win.ch)];
 	[window setContentMinSize:NSMakeSize(win.cw + 2 * borderpx,
 	                                     win.ch + 2 * borderpx)];
 	if (xw.isfixed) {
@@ -2263,11 +2262,12 @@ scrollevent(NSEvent *ev)
 
 - (void)setFrameSize:(NSSize)size
 {
+	int w = lround(size.width), h = lround(size.height);
+
 	[super setFrameSize:size];
-	if (!xw.started || ((int)size.width == win.w &&
-	    (int)size.height == win.h))
+	if (!xw.started || (w == win.w && h == win.h))
 		return;
-	cresize(size.width, size.height);
+	cresize(w, h);
 	drawnow();
 }
 
@@ -2418,6 +2418,20 @@ scrollevent(NSEvent *ev)
 {
 	ttyhangup();
 	exit(0);
+}
+
+/* snap to whole cells, like the X size hints */
+- (NSSize)windowWillResize:(NSWindow *)w toSize:(NSSize)size
+{
+	NSRect r = [w contentRectForFrameRect:NSMakeRect(0, 0, size.width,
+	                                                 size.height)];
+	CGFloat base = 2 * borderpx;
+
+	r.size.width = base + MAX(1, lround((r.size.width - base) / win.cw))
+	               * win.cw;
+	r.size.height = base + MAX(1, lround((r.size.height - base) / win.ch))
+	                * win.ch;
+	return [w frameRectForContentRect:r].size;
 }
 
 - (void)windowDidBecomeKey:(NSNotification *)n
@@ -2590,7 +2604,7 @@ run(void)
 
 	ttyfd = ttynew(opt_line, shell, opt_io, opt_cmd);
 	xw.started = 1;
-	cresize(view.frame.size.width, view.frame.size.height);
+	cresize(lround(view.frame.size.width), lround(view.frame.size.height));
 
 	ttysrc = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, ttyfd, 0,
 	                                dispatch_get_main_queue());
