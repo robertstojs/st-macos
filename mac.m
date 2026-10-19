@@ -2165,6 +2165,10 @@ scrollevent(NSEvent *ev)
 	if ([ev hasPreciseScrollingDeltas]) {
 		dx /= win.cw;
 		dy /= win.ch;
+	} else if (([ev modifierFlags] & NSEventModifierFlagShift) && !dy) {
+		/* macOS turns Shift+wheel into horizontal scrolling */
+		dy = dx;
+		dx = 0;
 	}
 	if ([ev phase] == NSEventPhaseBegan)
 		accx = accy = 0;
