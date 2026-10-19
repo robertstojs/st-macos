@@ -1,11 +1,15 @@
 st - simple terminal
 --------------------
-st is a simple terminal emulator for X which sucks less.
+st is a simple terminal emulator for X and macOS which sucks less.
 
 
 Requirements
 ------------
 In order to build st you need the Xlib header files.
+
+On macOS you need the Xcode command line tools, pkg-config and xorgproto:
+
+    brew install pkg-config xorgproto
 
 
 Installation
@@ -17,6 +21,9 @@ Afterwards enter the following command to build and install st (if
 necessary as root):
 
     make clean install
+
+On macOS, make builds st.app into /Applications. Change APPPREFIX in
+config.mk to build it somewhere else.
 
 
 Running st
